@@ -2,7 +2,7 @@ name: Recon & Takeover
 
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   full-recon:
@@ -56,19 +56,22 @@ jobs:
 
             echo "[*] Probing live hosts..."
             cat results/$TARGET/subdomains.txt | httpx -silent \
-              -title -td -tech-detect -web-server -ip -status-code -method \
-              -probe -follow-redirects -random-agent -fr \
-              -rate-limit 500 -timeout 10 -retries 3 -location \
+              -status-code -location -title -web-server -cname -ip \
+              -tech-detect -cdn -method -probe -follow-redirects -fr \
+              -random-agent -no-color -timeout 15 -retries 3 -threads 100 \
               -o results/$TARGET/httpx.txt
 
             echo "[*] Filtering SUCCESS responses..."
-            awk '$NF == "SUCCESS" {print $1}' results/$TARGET/httpx.txt > results/$TARGET/httpx-success.txt
+            cat results/$TARGET/httpx.txt | grep "SUCCESS" | awk '{print $1}' > results/$TARGET/httpx-success.txt
 
             echo "[*] Resolving DNS (via dnsx)..."
             awk '{print $1}' results/$TARGET/httpx.txt | dnsx -nc -cname -resp -silent > results/$TARGET/dnsx.txt
 
             echo "[*] Filtering dangling CNAME (possible takeover)..."
-            awk '$2 == "CNAME" {print $1, $3}' results/$TARGET/dnsx.txt | while read sub cname; do
+            awk '/\[CNAME\]/ {
+              gsub(/\[|\]/, "", $0);  # remove all brackets
+              print $1, $3;
+            }' results/$TARGET/dnsx.txt | while read sub cname; do
               if ! dig +short "$cname" | grep -q .; then
                 echo "$sub -> $cname [🔥 Dangling]" >> results/$TARGET/dangling-cname.txt
               fi
@@ -110,4 +113,4 @@ jobs:
         run: |
           git add results/
           git commit -m "Recon & Takeover $(date -u)" --no-verify || echo "No changes"
-          git push origin main || true
+          git push origin master || true
