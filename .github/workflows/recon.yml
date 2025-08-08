@@ -1,4 +1,4 @@
-name: Full Recon & Takeover
+name: Recon & Takeover
 
 on:
   push:
@@ -21,8 +21,7 @@ jobs:
         run: |
           set -e
           sudo apt-get update
-          sudo apt-get install -y wget unzip jq git curl
-
+          sudo apt-get install -y wget unzip jq git curl dnsutils
           # Install Go tools
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest && sudo mv ~/go/bin/httpx /usr/bin/
           go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && sudo mv ~/go/bin/subfinder /usr/bin/
@@ -31,7 +30,6 @@ jobs:
           go install github.com/lc/gau/v2/cmd/gau@latest && sudo mv ~/go/bin/gau /usr/bin/
           go install github.com/cybercdh/assetfinder@cybercdh && sudo mv ~/go/bin/assetfinder /usr/bin/
           go install github.com/PentestPad/subzy@latest && sudo mv ~/go/bin/subzy /usr/bin/
-
           # Install nuclei (latest release)
           LATEST_VERSION=$(curl -s https://api.github.com/repos/projectdiscovery/nuclei/releases/latest | jq -r '.tag_name')
           CLEAN_VERSION=${LATEST_VERSION#v}
@@ -41,53 +39,69 @@ jobs:
           sudo chmod +x /usr/bin/nuclei
           rm -rf nuclei* *.md
 
-      - name: Recon & Takeover Loop
+      - name: Recon
         env:
           DOMAINS: ${{ secrets.DOMAIN }}
         run: |
           set -e
-          mkdir -p results
           TODAY=$(date +%F)
-
+          mkdir -p results
           echo "$DOMAINS" | while read -r TARGET; do
-            echo "🚀 Scanning: $TARGET"
+            echo "\n🚀 Scanning: $TARGET"
+
+            mkdir -p results/$TARGET
 
             echo "[*] Subdomain Enumeration..."
-            subfinder -d $TARGET -silent > sub1.txt
-            assetfinder --subs-only $TARGET | grep "\.${TARGET}$" > sub2.txt
-            cat sub1.txt sub2.txt | sort -u > results/${TARGET}-subdomains.txt
-            rm -f sub1.txt sub2.txt
+            assetfinder $TARGET --subs-only | grep "\.${TARGET}$" | sort -u > results/$TARGET/subdomains.txt
 
             echo "[*] Probing live hosts..."
-            cat results/${TARGET}-subdomains.txt | httpx -silent -ports 80,443,8080,8443,3000,5000,8000,8888 \
+            cat results/$TARGET/subdomains.txt | httpx -silent \
               -title -td -tech-detect -web-server -ip -status-code -method \
               -probe -follow-redirects -random-agent -fr \
               -rate-limit 500 -timeout 10 -retries 3 -location \
-              -o results/${TARGET}-live.txt
+              -o results/$TARGET/httpx.txt
 
-            echo "[*] Resolving DNS..."
-            cat results/${TARGET}-live.txt | awk '{print $1}' | dnsx -silent -nc -a -cname -resp > results/${TARGET}-resolved.txt
+            echo "[*] Filtering SUCCESS responses..."
+            awk '$NF == "SUCCESS" {print $1}' results/$TARGET/httpx.txt > results/$TARGET/httpx-success.txt
 
-            echo "[*] Running Subdomain Takeover Check with Subzy..."
-            subzy run --targets results/${TARGET}-subdomains.txt \
+            echo "[*] Resolving DNS (via dnsx)..."
+            awk '{print $1}' results/$TARGET/httpx.txt | dnsx -nc -cname -resp -silent > results/$TARGET/dnsx.txt
+
+            echo "[*] Filtering dangling CNAME (possible takeover)..."
+            awk '$2 == "CNAME" {print $1, $3}' results/$TARGET/dnsx.txt | while read sub cname; do
+              if ! dig +short "$cname" | grep -q .; then
+                echo "$sub -> $cname [🔥 Dangling]" >> results/$TARGET/dangling-cname.txt
+              fi
+            done
+
+            echo "[*] Running Subdomain Takeover Check with Subzy (original list)..."
+            subzy run --targets results/$TARGET/subdomains.txt \
               --concurrency 50 \
               --hide_fails \
               --timeout 10 \
               --vuln \
-              --output results/subzy-takeover-${TARGET}.json
+              --output results/$TARGET/subzy-subdomains.json
 
-          awk '{print $1}' results/${TARGET}-resolved.txt | sort -u > results/${TARGET}-filtered.txt
-          
-          subzy run --targets results/${TARGET}-filtered.txt \
-            --concurrency 50 \
-            --hide_fails \
-            --timeout 10 \
-            --vuln \
-            --output results/dnsx-takeover-${TARGET}.json
+            echo "[*] Extra Subzy (from resolved list)..."
+            awk '{print $1}' results/$TARGET/dnsx.txt | sort -u > results/$TARGET/filtered.txt
+            subzy run --targets results/$TARGET/filtered.txt \
+              --concurrency 50 \
+              --hide_fails \
+              --timeout 10 \
+              --vuln \
+              --output results/$TARGET/subzy-dnsx.json
 
+            echo "[*] Running Nuclei on successful HTTPX targets..."
+            nuclei -l results/$TARGET/httpx-success.txt \
+              -severity low, medium, high, critical, unknown \
+              -c 50 \
+              -timeout 10 \
+              -rate-limit 100 \
+              -silent \
+              -o results/$TARGET/nuclei-httpx.txt
           done
 
-      - name: Set Git Identity
+      - name: Set Git
         run: |
           git config --global user.email "${{ secrets.EMAIL_ADDRESS }}"
           git config --global user.name "${{ secrets.USER_NAME }}"
@@ -95,5 +109,5 @@ jobs:
       - name: Commit & Push
         run: |
           git add results/
-          git commit -m "🔎 Recon & Takeover Update $(date -u)" --no-verify || echo "No changes"
+          git commit -m "Recon & Takeover $(date -u)" --no-verify || echo "No changes"
           git push origin main || true
