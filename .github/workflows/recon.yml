@@ -2,7 +2,7 @@ name: Full Recon & Takeover
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   full-recon:
