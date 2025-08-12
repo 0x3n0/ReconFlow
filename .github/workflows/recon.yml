@@ -84,9 +84,6 @@ jobs:
               --timeout 10 \
               --vuln \
               --output results/$TARGET/subzy-subdomains.json
-            git add results/$TARGET/subzy-subdomains.json
-            git commit -m "[$TARGET] Subzy $(date -u)" --no-verify || true
-            git push origin HEAD:main || true
 
             #echo "[*] Extra Subzy (from resolved list)..."
             #awk '{print $1}' results/$TARGET/dnsx.txt | sort -u > results/$TARGET/filtered.txt
