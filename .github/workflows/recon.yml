@@ -42,13 +42,8 @@ jobs:
       - name: Recon
         env:
           DOMAINS: ${{ secrets.DOMAIN }}
-          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
-          USER_NAME: ${{ secrets.USER_NAME }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          git config --global user.email "${EMAIL_ADDRESS}"
-          git config --global user.name "${USER_NAME}"
           TODAY=$(date +%F)
           mkdir -p results
           echo "$DOMAINS" | while read -r TARGET; do
@@ -58,9 +53,6 @@ jobs:
 
             echo "[*] Subdomain Enumeration..."
             assetfinder $TARGET --subs-only | grep "\.${TARGET}$" | sort -u > results/$TARGET/subdomains.txt
-            git add results/$TARGET/subdomains.txt
-            git commit -m "[$TARGET] assetfinder $(date -u)" --no-verify || true
-            git push origin HEAD:main || true
 
             echo "[*] Probing live hosts..."
             cat results/$TARGET/subdomains.txt | httpx -silent \
@@ -68,21 +60,12 @@ jobs:
               -tech-detect -cdn -method -probe -follow-redirects -fr \
               -random-agent -no-color -timeout 15 -retries 3 -threads 100 \
               -o results/$TARGET/httpx.txt
-            git add results/$TARGET/httpx.txt
-            git commit -m "[$TARGET] httpx $(date -u)" --no-verify || true
-            git push origin HEAD:main || true
             
             echo "[*] Filtering SUCCESS responses..."
             cat results/$TARGET/httpx.txt | grep "SUCCESS" | awk '{print $1}' > results/$TARGET/httpx-success.txt
-            git add results/$TARGET/httpx-success.txt
-            git commit -m "[$TARGET] httpx-success $(date -u)" --no-verify || true
-            git push origin HEAD:main || true
 
             echo "[*] Resolving DNS (via dnsx)..."
             awk '{print $1}' results/$TARGET/httpx.txt | dnsx -nc -cname -resp -silent > results/$TARGET/dnsx.txt
-            git add results/$TARGET/dnsx.txt
-            git commit -m "[$TARGET] dnsx $(date -u)" --no-verify || true
-            git push origin HEAD:main || true
 
             echo "[*] Filtering dangling CNAME (possible takeover)..."
             awk '/\[CNAME\]/ {
@@ -93,9 +76,6 @@ jobs:
                 echo "$sub -> $cname" >> results/$TARGET/dangling.txt
               fi
             done
-            git add results/$TARGET/dangling.txt || true
-            git commit -m "[$TARGET] dangling CNAME check $(date -u)" --no-verify || true
-            git push origin HEAD:main || true
 
             echo "[*] Running Subdomain Takeover Check with Subzy (original list)..."
             subzy run --targets results/$TARGET/subdomains.txt \
@@ -176,7 +156,7 @@ jobs:
           set -e
           git config --global user.email "${EMAIL_ADDRESS}"
           git config --global user.name "${USER_NAME}"
-          git add results/nuclei-httpx.txt || true
+          git add results/ || true
           git commit -m "[$TARGET] done $(date -u)" --no-verify || echo "No changes to commit"
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
           git push origin HEAD:master || true
