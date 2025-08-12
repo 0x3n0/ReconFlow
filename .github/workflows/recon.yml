@@ -59,8 +59,8 @@ jobs:
             echo "[*] Subdomain Enumeration..."
             assetfinder $TARGET --subs-only | grep "\.${TARGET}$" | sort -u > results/$TARGET/subdomains.txt
             git add results/$TARGET/subdomains.txt
-            git commit -m "[$TARGET] httpx done $(date -u)" --no-verify || true
-            git push origin HEAD:master || true
+            git commit -m "[$TARGET] assetfinder $(date -u)" --no-verify || true
+            git push origin HEAD:main || true
 
             echo "[*] Probing live hosts..."
             cat results/$TARGET/subdomains.txt | httpx -silent \
@@ -69,17 +69,20 @@ jobs:
               -random-agent -no-color -timeout 15 -retries 3 -threads 100 \
               -o results/$TARGET/httpx.txt
             git add results/$TARGET/httpx.txt
-            git commit -m "[$TARGET] httpx done $(date -u)" --no-verify || true
+            git commit -m "[$TARGET] httpx $(date -u)" --no-verify || true
             git push origin HEAD:main || true
             
             echo "[*] Filtering SUCCESS responses..."
             cat results/$TARGET/httpx.txt | grep "SUCCESS" | awk '{print $1}' > results/$TARGET/httpx-success.txt
             git add results/$TARGET/httpx-success.txt
-            git commit -m "[$TARGET] httpx-success done $(date -u)" --no-verify || true
+            git commit -m "[$TARGET] httpx-success $(date -u)" --no-verify || true
             git push origin HEAD:main || true
 
             echo "[*] Resolving DNS (via dnsx)..."
             awk '{print $1}' results/$TARGET/httpx.txt | dnsx -nc -cname -resp -silent > results/$TARGET/dnsx.txt
+            git add results/$TARGET/dnsx.txt
+            git commit -m "[$TARGET] dnsx $(date -u)" --no-verify || true
+            git push origin HEAD:main || true
 
             echo "[*] Filtering dangling CNAME (possible takeover)..."
             awk '/\[CNAME\]/ {
@@ -91,7 +94,7 @@ jobs:
               fi
             done
             git add results/$TARGET/dangling.txt || true
-            git commit -m "[$TARGET] dangling CNAME check done $(date -u)" --no-verify || true
+            git commit -m "[$TARGET] dangling CNAME check $(date -u)" --no-verify || true
             git push origin HEAD:main || true
 
             echo "[*] Running Subdomain Takeover Check with Subzy (original list)..."
@@ -102,7 +105,7 @@ jobs:
               --vuln \
               --output results/$TARGET/subzy-subdomains.json
             git add results/$TARGET/subzy-subdomains.json
-            git commit -m "[$TARGET] httpx-success done $(date -u)" --no-verify || true
+            git commit -m "[$TARGET] Subzy $(date -u)" --no-verify || true
             git push origin HEAD:main || true
 
             #echo "[*] Extra Subzy (from resolved list)..."
